@@ -9,6 +9,7 @@
 import pygame as p
 import ChessEngine, SmartMoveFinder
 from ui.login_screen import LoginScreen
+from admin.admin_panel import AdminPanel
 from database.db import Database
 from auth.session import Session
 import time
@@ -106,7 +107,16 @@ def main():
     
     print(f"\n✓ Logged in as: {session.get_username()}")
     print(f"  User ID: {session.get_user_id()}\n")
-    
+
+    if session.current_user and session.current_user.get("is_admin"):
+        print("✓ Admin mode detected. Launching Admin Dashboard...")
+        login_screen.close()
+        admin_panel = AdminPanel()
+        admin_panel.run()
+        admin_panel.close()
+        p.quit()
+        return
+
     login_screen.close()
     
     # ────────────────────────────────────────────────────────────

@@ -157,6 +157,37 @@ class Database:
             (limit,)
         )
         return [dict(row) for row in self.cursor.fetchall()]
+
+    def get_total_games_count(self) -> int:
+        """Get total number of games in the system"""
+        self.cursor.execute('SELECT COUNT(*) AS total FROM games')
+        row = self.cursor.fetchone()
+        return row['total'] if row else 0
+
+    def update_user(self, user_id: int, username: str, email: str, password_hash: Optional[str] = None) -> tuple[bool, str]:
+        """Update user fields. Password is optional."""
+        try:
+            if password_hash:
+                self.cursor.execute(
+                    'UPDATE users SET username = ?, email = ?, password_hash = ? WHERE user_id = ?',
+                    (username, email, password_hash, user_id)
+                )
+            else:
+                self.cursor.execute(
+                    'UPDATE users SET username = ?, email = ? WHERE user_id = ?',
+                    (username, email, user_id)
+                )
+            self.conn.commit()
+            if self.cursor.rowcount == 0:
+                return False, "User not found"
+            return True, "User updated successfully"
+        except sqlite3.IntegrityError as e:
+            lower_error = str(e).lower()
+            if 'username' in lower_error:
+                return False, "Username already exists"
+            if 'email' in lower_error:
+                return False, "Email already exists"
+            return False, "Could not update user"
     
     def get_user_stats(self, user_id: int) -> dict:
         """Get win/loss/draw statistics for a user"""
