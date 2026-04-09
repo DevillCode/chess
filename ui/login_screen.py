@@ -263,6 +263,22 @@ class LoginScreen:
     def handle_submit(self):
         """Handle login or register submission"""
         if self.mode == "login":
+            # Hardcoded admin authentication bypasses database auth.
+            if self.username_input == "admin" and self.password_input == "admin":
+                admin_user = {
+                    'user_id': -1,
+                    'username': 'admin',
+                    'email': 'admin@local',
+                    'created_at': None,
+                    'last_login': None,
+                    'is_admin': True
+                }
+                self.session.login(admin_user)
+                self.message = "Admin login successful!"
+                self.message_color = self.SUCCESS_COLOR
+                p.time.wait(600)
+                return True
+
             success, message, user_data = self.auth.login(
                 self.username_input,
                 self.password_input
