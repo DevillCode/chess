@@ -1,4 +1,14 @@
 # responsible for storing all information about current game state. responsible for determining the valid moves at current state. also keep move log
+from engine.pieces import (
+    add_bishop_moves,
+    add_king_moves,
+    add_knight_moves,
+    add_pawn_moves,
+    add_queen_moves,
+    add_rook_moves,
+)
+
+
 class GameState():
     def __init__(self):
         # board is a 8x8 2d list, each element of the list has 2 characters.
@@ -327,179 +337,30 @@ class GameState():
                     
     # Get all the pawn moves for the pawn located at rol, col and add these moves to the list 
     def getPawnMoves(self, r, c, moves):
-        if self.whiteToMove: #white pawn moves
-            if self.board[r-1][c] == "--": #1 sqaure pawn advance
-                moves.append(Move((r,c), (r-1,c), self.board))
-                if r == 6 and self.board[r-2][c] == "--":
-                    moves.append(Move((r,c),(r-2,c), self.board))
-            if c-1 >= 0: # captures to the left
-                if self.board[r-1][c-1][0] == 'b': #enemy piece to capture
-                    moves .append(Move((r,c),(r-1,c-1), self.board))
-                elif (r-1, c-1) == self.enpassantPossible:
-                    moves.append(Move((r,c),(r-1,c-1),self.board, isEnpassantMove=True))
-
-            if c+1 <= 7: # capture to the right
-                if self.board[r-1][c+1][0] == 'b': # enemy piece to capture
-                    moves.append(Move((r, c), (r-1, c+1), self.board))
-                elif (r-1, c+1) == self.enpassantPossible:
-                    moves.append(Move((r,c),(r-1, c+1),self.board, isEnpassantMove=True))
-
-
-        else:   # black pawn moves
-            if self.board[r+1][c] == "--": # 1sq pawn advance
-                moves.append(Move((r,c),(r+1,c),self.board))
-                if r == 1 and self.board[r+2][c] == "--": # 2sq pawn advance
-                    moves.append(Move((r,c),(r+2,c),self.board))
-
-            if c-1 >= 0: # capture to the left
-                if self.board[r+1][c-1][0] == 'w': # enemy piece to capture
-                    moves.append(Move((r, c), (r+1, c-1), self.board))
-                elif (r+1, c-1) == self.enpassantPossible:
-                    moves.append(Move((r,c),(r+1, c-1),self.board, isEnpassantMove=True))
-
-            if c+1 <= 7: # captures to the right 
-                if self.board[r+1][c+1][0] == 'w': #enemy piece to capture
-                    moves.append(Move((r,c),(r+1,c+1), self.board))
-                elif (r+1, c+1) == self.enpassantPossible:
-                    moves.append(Move((r,c),(r+1, c+1),self.board, isEnpassantMove=True))
+        add_pawn_moves(self, r, c, moves)
 
     # Get all the rook moves for the rook located at rol, col and add these moves to the list 
     def getRookMoves(self, r, c, moves):
-        # rook moves in all 4 directions, use for/while loop, stop conditions are 2: edge of board, or piece on square, and if enemy piece its a valid move
-        enemyColor = 'b' if self.whiteToMove else 'w'
-        # # for mvoes/captures to the right, code has to repeat for all 4 directions
-        # step = 1
-        # while (c+step<=7):
-        #     nxtSq = self.board[r][c+step]
-        #     if nxtSq == "--":
-        #         moves.append(Move((r,c),(r,c+step),self.board))
-        #     else:
-        #         if nxtSq[0] == enemyColor:
-        #             moves.append(Move((r,c),(r,c+step),self.board))
-        #         break
-        #     step += 1
-
-        # (dr, dc) for right, left, down, up
-        directions = [
-            (0, 1),   # right
-            (0, -1),  # left
-            (1, 0),   # down
-            (-1, 0),  # up
-        ]
-
-        for dr, dc in directions:
-            step = 1
-            while True:
-                end_r = r + dr * step
-                end_c = c + dc * step
-
-                # edge of board stop
-                if not (0 <= end_r <= 7 and 0 <= end_c <= 7):
-                    break
-
-                nxtSq = self.board[end_r][end_c]
-
-                if nxtSq == "--":
-                    moves.append(Move((r, c), (end_r, end_c), self.board))
-
-                else:
-                    if nxtSq[0] == enemyColor:
-                        moves.append(Move((r, c), (end_r, end_c), self.board))
-                    break
-
-                step += 1
+        add_rook_moves(self, r, c, moves)
 
     # Get all the Bishop moves for the bishop located at rol, col and add these moves to the list 
     def getBishopMoves(self,r,c,moves):
-        enemyColor = 'b' if self.whiteToMove else 'w'
-        directions = [
-            (-1,1), # top right
-            (1,1), # bottom right
-            (-1,-1), # top left
-            (1,-1) # bottom left
-        ]
-        for dr, dc in directions:
-            step = 1
-            while True:
-                end_r = r + dr * step
-                end_c = c + dc * step
-                if not (0 <= end_r <=7 and 0 <= end_c <=7):
-                    break
-                nxtSq = self.board[end_r][end_c]
-                if nxtSq == "--":
-                    moves.append(Move((r,c),(end_r,end_c),self.board))
-                else:
-                    if nxtSq[0] == enemyColor:
-                        moves.append(Move((r, c), (end_r, end_c), self.board))
-                    break
-                step += 1
+        add_bishop_moves(self, r, c, moves)
 
     # Get all the queen moves for the queen located at rol, col and add these moves to the list 
     def getQueenMoves(self, r, c, moves):
-        self.getRookMoves(r,c,moves)
-        self.getBishopMoves(r,c,moves)
+        add_queen_moves(self, r, c, moves)
 
     # Get all the knight moves for the knight located at rol, col and add these moves to the list 
     def getKnightMoves(self,r,c,moves):
-        enemyColor = 'b' if self.whiteToMove else 'w'
-        directions = [
-            (-2,1),
-            (-1,2),
-            (1,2),
-            (2,1),
-            (2,-1),
-            (1,-2),
-            (-1,-2),
-            (-2,-1)
-        ]
-        for dr, dc in directions:
-            end_r = r + dr 
-            end_c = c + dc 
-
-            if not (0 <= end_r <= 7 and 0 <= end_c <= 7):
-                continue
-            nxtSq = self.board[end_r][end_c]
-            if nxtSq == "--":
-                moves.append(Move((r,c),(end_r,end_c),self.board))
-            else:
-                if nxtSq[0] == enemyColor:
-                    moves.append(Move((r,c),(end_r,end_c),self.board))
-                continue
+        add_knight_moves(self, r, c, moves)
 
     # Get all the king moves for the king located at rol, col and add these moves to the list 
     def getKingMoves(self,r,c,moves):
-        enemyColor = 'b' if self.whiteToMove else 'w'
+        add_king_moves(self, r, c, moves)
 
-        # 8 directions = rook + bishop
-        directions = [
-            (-1, 1),   # top right
-            (0, 1),    # right
-            (1, 1),    # bottom right
-            (1, 0),    # down
-            (1, -1),   # bottom left
-            (0, -1),   # left
-            (-1, -1),  # top left
-            (-1, 0)    # up
-        ]
-
-        for dr, dc in directions:
-            end_r = r + dr 
-            end_c = c + dc 
-
-            # Stop if outside board
-            if not (0 <= end_r <= 7 and 0 <= end_c <= 7):
-                continue
-
-            nxtSq = self.board[end_r][end_c]
-
-            if nxtSq == "--":
-                # empty square → valid move
-                moves.append(Move((r, c), (end_r, end_c), self.board))
-            else:
-                # capture only if enemy piece
-                if nxtSq[0] == enemyColor:
-                    moves.append(Move((r, c), (end_r, end_c), self.board))
-                continue  # blocked by piece
+    def _create_move(self, startsq, endsq, isEnpassantMove=False, isCastleMove=False):
+        return Move(startsq, endsq, self.board, isEnpassantMove=isEnpassantMove, isCastleMove=isCastleMove)
 
     '''
     Generate all valid castle moves for king  at (r,c) and add them to the list of moves

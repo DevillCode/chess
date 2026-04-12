@@ -7,18 +7,24 @@
 # ✅ Fixed logic errors
 
 import pygame as p
-import ChessEngine, SmartMoveFinder
+from engine import GameState, Move
+from ai import choose_move
 from ui.login_screen import LoginScreen
 from admin.admin_panel import AdminPanel
-from database.db import Database
+from infra import GameRepository
 from auth.session import Session
 import time
 
 # ═══════════════════════════════════════════════════════════════
 # LAYOUT CONSTANTS
 # ═══════════════════════════════════════════════════════════════
-BOARD_SIZE = 600
-SIDEBAR_WIDTH = 300
+MIN_BOARD_SIZE = 400
+MIN_SIDEBAR_WIDTH = 260
+DEFAULT_BOARD_SIZE = 600
+DEFAULT_SIDEBAR_WIDTH = 300
+
+BOARD_SIZE = DEFAULT_BOARD_SIZE
+SIDEBAR_WIDTH = DEFAULT_SIDEBAR_WIDTH
 WINDOW_WIDTH = BOARD_SIZE + SIDEBAR_WIDTH
 WINDOW_HEIGHT = BOARD_SIZE
 
@@ -47,6 +53,7 @@ HIGHLIGHT_SELECTED = (130, 151, 105, 128)
 # GLOBAL STATE
 # ═══════════════════════════════════════════════════════════════
 IMAGES = {}
+ORIGINAL_IMAGES = {}
 
 # Game state
 game_mode = "play"  # "play", "replay", or "finished"
@@ -61,18 +68,38 @@ black_ai_difficulty = "medium"
 move_list_scroll = 0
 move_list_max_scroll = 0
 
-def loadImages():
-    """Load piece images"""
+def _calculate_layout(window_width, window_height):
+    """Return responsive board/sidebar sizing for the current window."""
+    width = max(window_width, MIN_BOARD_SIZE + MIN_SIDEBAR_WIDTH)
+    height = max(window_height, MIN_BOARD_SIZE)
+    board_size = min(height, max(MIN_BOARD_SIZE, width - MIN_SIDEBAR_WIDTH))
+    board_size = (board_size // DIMENSION) * DIMENSION
+    sidebar_width = max(MIN_SIDEBAR_WIDTH, width - board_size)
+    return board_size, sidebar_width, board_size + sidebar_width, height
+
+
+def update_layout(window_width, window_height):
+    """Update layout globals and resize piece sprites."""
+    global BOARD_SIZE, SIDEBAR_WIDTH, WINDOW_WIDTH, WINDOW_HEIGHT, SQ_SIZE
+    BOARD_SIZE, SIDEBAR_WIDTH, WINDOW_WIDTH, WINDOW_HEIGHT = _calculate_layout(window_width, window_height)
+    SQ_SIZE = BOARD_SIZE // DIMENSION
+    loadImages(force_reload=False)
+
+
+def loadImages(force_reload=False):
+    """Load and scale piece images for current square size."""
     pieces = ['wp','wK','wQ','wN','wB','wR','bp','bK','bQ','bN','bB','bR']
     for piece in pieces:
+        if force_reload or piece not in ORIGINAL_IMAGES:
+            ORIGINAL_IMAGES[piece] = p.image.load(f"images/{piece}.png").convert_alpha()
         IMAGES[piece] = p.transform.smoothscale(
-            p.image.load(f"images/{piece}.png"),
+            ORIGINAL_IMAGES[piece],
             (SQ_SIZE, SQ_SIZE)
         )
 
 def generate_pgn_string(gs):
     """Generate PGN notation with check/checkmate symbols"""
-    temp_gs = ChessEngine.GameState()
+    temp_gs = GameState()
     pgn_moves = []
     
     for i, move in enumerate(gs.moveLog):
@@ -123,12 +150,14 @@ def main():
     # STEP 2: GAME LOOP (can restart games)
     # ────────────────────────────────────────────────────────────
     p.init()
-    screen = p.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+    screen = p.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), p.RESIZABLE)
     p.display.set_caption(f"Chess - {session.get_username()}")
     clock = p.time.Clock()
     
-    loadImages()
-    db = Database()
+    update_layout(WINDOW_WIDTH, WINDOW_HEIGHT)
+    screen = p.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), p.RESIZABLE)
+    loadImages(force_reload=True)
+    db = GameRepository()
     
     keep_playing = True
     
@@ -184,7 +213,7 @@ def run_single_game(screen, clock, db, session):
     current_game_id = db.create_game(session.get_user_id(), difficulty)
     print(f"✓ Game created (ID: {current_game_id})")
     
-    gs = ChessEngine.GameState()
+    gs = GameState()
     validMoves = gs.getValidMoves()
     moveMade = False
     animate = False
@@ -220,6 +249,9 @@ def run_single_game(screen, clock, db, session):
         for e in p.event.get():
             if e.type == p.QUIT:
                 return "quit"
+            elif e.type == p.VIDEORESIZE:
+                update_layout(e.w, e.h)
+                screen = p.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), p.RESIZABLE)
             
             # ── MOUSE WHEEL (SCROLL MOVE LIST) ──
             elif e.type == p.MOUSEWHEEL:
@@ -270,7 +302,7 @@ def run_single_game(screen, clock, db, session):
                         playerClicks.append(sqSelected)
                     
                     if len(playerClicks) == 2:
-                        move = ChessEngine.Move(playerClicks[0], playerClicks[1], gs.board)
+                        move = Move(playerClicks[0], playerClicks[1], gs.board)
                         
                         for i in range(len(validMoves)):
                             if move == validMoves[i]:
@@ -307,10 +339,7 @@ def run_single_game(screen, clock, db, session):
             else:
                 current_difficulty = white_ai_difficulty if gs.whiteToMove else black_ai_difficulty
             
-            AIMove, eval_score = SmartMoveFinder.findBestMove(gs, validMoves, current_difficulty)
-            
-            if AIMove is None:
-                AIMove = SmartMoveFinder.findRandomMove(validMoves)
+            AIMove = choose_move(gs, validMoves, current_difficulty)
             
             gs.makeMove(AIMove)
             moveMade = True
@@ -402,25 +431,37 @@ def selectGameSettings(screen, clock):
     white_dropdown_open = False
     black_dropdown_open = False
     
-    font_title = p.font.SysFont("Arial", 32, bold=True)
-    font_label = p.font.SysFont("Arial", 20)
-    font_button = p.font.SysFont("Arial", 24)
-    font_small = p.font.SysFont("Arial", 18)
-    
     while selecting:
+        scale = min(WINDOW_WIDTH / 900, WINDOW_HEIGHT / 600)
+        scale = max(0.85, min(scale, 1.5))
+
+        def sx(value):
+            return int(value * scale)
+
+        def sy(value):
+            return int(value * scale)
+
+        panel_width = min(WINDOW_WIDTH - sx(80), sx(620))
+        panel_x = (WINDOW_WIDTH - panel_width) // 2
+
+        font_title = p.font.SysFont("Arial", max(24, sx(32)), bold=True)
+        font_label = p.font.SysFont("Arial", max(16, sx(20)))
+        font_button = p.font.SysFont("Arial", max(16, sx(24)))
+        font_small = p.font.SysFont("Arial", max(14, sx(18)))
+
         screen.fill(BG_COLOR)
         
         title = font_title.render("Game Setup", True, TEXT_COLOR)
-        screen.blit(title, (WINDOW_WIDTH // 2 - title.get_width() // 2, 50))
+        screen.blit(title, (WINDOW_WIDTH // 2 - title.get_width() // 2, sy(40)))
         
         mouse_pos = p.mouse.get_pos()
         
         # ── GAME TYPE SELECTION ──
         label = font_label.render("Game Type:", True, TEXT_GRAY)
-        screen.blit(label, (100, 120))
+        screen.blit(label, (panel_x, sy(110)))
         
-        pvai_rect = p.Rect(100, 160, 180, 50)
-        aivai_rect = p.Rect(300, 160, 180, 50)
+        pvai_rect = p.Rect(panel_x, sy(150), panel_width // 2 - sx(10), sy(50))
+        aivai_rect = p.Rect(panel_x + panel_width // 2 + sx(10), sy(150), panel_width // 2 - sx(10), sy(50))
         
         pvai_color = BUTTON_COLOR if game_type == "player_vs_ai" else (BUTTON_HOVER if pvai_rect.collidepoint(mouse_pos) else PANEL_COLOR)
         p.draw.rect(screen, pvai_color, pvai_rect, border_radius=8)
@@ -432,17 +473,17 @@ def selectGameSettings(screen, clock):
         aivai_text = font_button.render("AI vs AI", True, TEXT_COLOR)
         screen.blit(aivai_text, (aivai_rect.centerx - aivai_text.get_width() // 2, aivai_rect.centery - aivai_text.get_height() // 2))
         
-        current_y = 240
+        current_y = sy(230)
         
         # ── PLAYER VS AI OPTIONS ──
         if game_type == "player_vs_ai":
             # Color selection
             label = font_label.render("Play as:", True, TEXT_GRAY)
-            screen.blit(label, (100, current_y))
-            current_y += 40
+            screen.blit(label, (panel_x, current_y))
+            current_y += sy(40)
             
-            white_rect = p.Rect(100, current_y, 150, 50)
-            black_rect = p.Rect(270, current_y, 150, 50)
+            white_rect = p.Rect(panel_x, current_y, panel_width // 2 - sx(10), sy(50))
+            black_rect = p.Rect(panel_x + panel_width // 2 + sx(10), current_y, panel_width // 2 - sx(10), sy(50))
             
             white_color = BUTTON_COLOR if selected_color == "white" else (BUTTON_HOVER if white_rect.collidepoint(mouse_pos) else PANEL_COLOR)
             p.draw.rect(screen, white_color, white_rect, border_radius=8)
@@ -454,18 +495,19 @@ def selectGameSettings(screen, clock):
             black_text = font_button.render("Black", True, TEXT_COLOR)
             screen.blit(black_text, (black_rect.centerx - black_text.get_width() // 2, black_rect.centery - black_text.get_height() // 2))
             
-            current_y += 80
+            current_y += sy(80)
             
             # AI difficulty (opponent)
             label = font_label.render("AI Difficulty:", True, TEXT_GRAY)
-            screen.blit(label, (100, current_y))
-            current_y += 40
+            screen.blit(label, (panel_x, current_y))
+            current_y += sy(40)
             
             ai_diff = white_ai_diff if selected_color == "black" else black_ai_diff
             
-            easy_rect = p.Rect(100, current_y, 100, 50)
-            medium_rect = p.Rect(220, current_y, 100, 50)
-            hard_rect = p.Rect(340, current_y, 100, 50)
+            option_width = (panel_width - sx(20)) // 3
+            easy_rect = p.Rect(panel_x, current_y, option_width, sy(50))
+            medium_rect = p.Rect(panel_x + option_width + sx(10), current_y, option_width, sy(50))
+            hard_rect = p.Rect(panel_x + 2 * (option_width + sx(10)), current_y, option_width, sy(50))
             
             easy_color = BUTTON_COLOR if ai_diff == "easy" else (BUTTON_HOVER if easy_rect.collidepoint(mouse_pos) else PANEL_COLOR)
             p.draw.rect(screen, easy_color, easy_rect, border_radius=8)
@@ -486,31 +528,32 @@ def selectGameSettings(screen, clock):
         else:
             # White AI difficulty dropdown
             label = font_label.render("White AI:", True, TEXT_GRAY)
-            screen.blit(label, (100, current_y))
-            current_y += 40
+            screen.blit(label, (panel_x, current_y))
+            current_y += sy(40)
             
-            white_dropdown_rect = p.Rect(100, current_y, 150, 50)
+            white_dropdown_rect = p.Rect(panel_x, current_y, panel_width // 2, sy(50))
             draw_dropdown(screen, white_dropdown_rect, white_ai_diff, white_dropdown_open, mouse_pos, font_button, font_small)
             
-            current_y += 70 if white_dropdown_open else 80
+            current_y += sy(70) if white_dropdown_open else sy(80)
             
             # Black AI difficulty dropdown
             label = font_label.render("Black AI:", True, TEXT_GRAY)
-            screen.blit(label, (100, current_y))
-            current_y += 40
+            screen.blit(label, (panel_x, current_y))
+            current_y += sy(40)
             
-            black_dropdown_rect = p.Rect(100, current_y, 150, 50)
+            black_dropdown_rect = p.Rect(panel_x, current_y, panel_width // 2, sy(50))
             draw_dropdown(screen, black_dropdown_rect, black_ai_diff, black_dropdown_open, mouse_pos, font_button, font_small)
         
         # ── START BUTTON ──
-        start_rect = p.Rect(150, 510, 200, 60)
+        button_y = WINDOW_HEIGHT - sy(90)
+        start_rect = p.Rect(panel_x, button_y, panel_width // 2 - sx(10), sy(55))
         start_color = BUTTON_HOVER if start_rect.collidepoint(mouse_pos) else BUTTON_COLOR
         p.draw.rect(screen, start_color, start_rect, border_radius=10)
         start_text = font_title.render("Start Game", True, TEXT_COLOR)
         screen.blit(start_text, (start_rect.centerx - start_text.get_width() // 2, start_rect.centery - start_text.get_height() // 2))
         
         # ── LOGOUT BUTTON ──
-        logout_rect = p.Rect(380, 510, 120, 60)
+        logout_rect = p.Rect(panel_x + panel_width // 2 + sx(10), button_y, panel_width // 2 - sx(10), sy(55))
         logout_color = BUTTON_HOVER if logout_rect.collidepoint(mouse_pos) else BUTTON_DISABLED
         p.draw.rect(screen, logout_color, logout_rect, border_radius=10)
         logout_text = font_button.render("Logout", True, TEXT_COLOR)
@@ -522,6 +565,9 @@ def selectGameSettings(screen, clock):
             if event.type == p.QUIT:
                 p.quit()
                 return ("player_vs_ai", "white", "medium", "medium")
+            elif event.type == p.VIDEORESIZE:
+                update_layout(event.w, event.h)
+                screen = p.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT), p.RESIZABLE)
             
             elif event.type == p.MOUSEBUTTONDOWN:
                 if pvai_rect.collidepoint(event.pos):
@@ -802,7 +848,7 @@ def get_replay_board(gs):
     if game_mode != "replay" or replay_index == -1:
         return gs.board
     
-    temp_gs = ChessEngine.GameState()
+    temp_gs = GameState()
     for i in range(replay_index + 1):
         if i < len(gs.moveLog):
             temp_gs.makeMove(gs.moveLog[i])
